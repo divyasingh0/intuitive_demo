@@ -5,6 +5,7 @@ resource "azurerm_resource_group" "rg" {
   tags = {
     owner = "divya.chauhan@intuitive.ai"
     email = "divya.chauhan@intuitive.ai"
+    name  = "terraform-demo"
   }
 }
 
@@ -26,5 +27,6 @@ resource "azurerm_storage_account" "storage" {
   tags = {
     owner = "divya.chauhan@intuitive.ai"
     email = "divya.chauhan@intuitive.ai"
+    name  = "terraform-demo"
   }
 }
