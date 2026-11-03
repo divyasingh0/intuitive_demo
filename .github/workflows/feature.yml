@@ -18,6 +18,23 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
  
+
+      # ------------------------------------------------------
+      # CONFIGURE GITHUB AUTHENTICATION
+      # ------------------------------------------------------
+      # Configures Git authentication for accessing private
+      # Terraform modules hosted in GitHub repositories.
+      #
+      # GH_PAT is used for private repository access.
+      # ------------------------------------------------------
+
+      - name: Configure GitHub Authentication
+        run: |
+          git config --global \
+            url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf \
+            "https://github.com/"
+
+
       - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -38,3 +55,5 @@ jobs:
  
       - name: Terraform Validate
         run: terraform validate
+
+
