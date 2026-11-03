@@ -4,6 +4,6 @@ resource_group_name = "rg-storage-test-demo"
 
 location = "eastus2"
 
-storage_account_name = "stgteststorage001"
+storage_account_name = "stgteststorage011"
 
 environment = "test"

@@ -46,6 +46,8 @@ env:
   TERRAFORM_ENVIRONMENT: test
   TERRAFORM_WORKING_DIRECTORY: .
 
+  # Sensitive Terraform variable
+  TF_VAR_windows_import_password: ${{ secrets.WINDOWS_IMPORT_PASSWORD }}
 
 # ==========================================================
 # JOBS
@@ -92,7 +94,7 @@ jobs:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           GH_PAT: ${{ secrets.GH_PAT }}
-
+          WINDOWS_IMPORT_PASSWORD: ${{ secrets.WINDOWS_IMPORT_PASSWORD }}
         run: |
           missing_secret=false
 
@@ -100,7 +102,8 @@ jobs:
             AZURE_CLIENT_ID \
             AZURE_TENANT_ID \
             AZURE_SUBSCRIPTION_ID \
-            GH_PAT 
+            GH_PAT \
+            WINDOWS_IMPORT_PASSWORD
           do
             if [ -z "${!secret_name}" ]; then
               echo "::error::Required secret is not configured: ${secret_name}"
@@ -111,28 +114,6 @@ jobs:
           if [ "$missing_secret" = true ]; then
             exit 1
           fi
-
-      # ------------------------------------------------------
-      # READ TERRAFORM VERSION
-      # ------------------------------------------------------
-
-      - name: Read Terraform Version
-        id: terraform_version
-        shell: bash
-        run: |
-          if [ ! -f .terraform-version ]; then
-            echo "::error::.terraform-version file was not found"
-            exit 1
-          fi
-
-          terraform_version="$(tr -d '[:space:]' < .terraform-version)"
-
-          if [ -z "$terraform_version" ]; then
-            echo "::error::.terraform-version is empty"
-            exit 1
-          fi
-
-          echo "version=$terraform_version" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------
       # SETUP TERRAFORM
@@ -164,16 +145,17 @@ jobs:
             exit 1
           fi
 
-      # ------------------------------------------------------
-      # AZURE OIDC LOGIN
-      # ------------------------------------------------------
-
       - name: Azure Login
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          creds: |
+            {
+              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+            }
+      
 
       # ------------------------------------------------------
       # CONFIGURE GITHUB AUTHENTICATION
@@ -243,24 +225,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------
-      # READ TERRAFORM VERSION
-      # ------------------------------------------------------
-
-      - name: Read Terraform Version
-        id: terraform_version
-        shell: bash
-        run: |
-          terraform_version="$(tr -d '[:space:]' < .terraform-version)"
-
-          if [ -z "$terraform_version" ]; then
-            echo "::error::.terraform-version is empty"
-            exit 1
-          fi
-
-          echo "version=$terraform_version" >> "$GITHUB_OUTPUT"
-
-      # ------------------------------------------------------
       # SETUP TERRAFORM
       # ------------------------------------------------------
 
@@ -270,17 +234,18 @@ jobs:
           terraform_version: ${{ steps.terraform_version.outputs.version }}
           terraform_wrapper: false
 
-      # ------------------------------------------------------
-      # AZURE OIDC LOGIN
-      # ------------------------------------------------------
 
       - name: Azure Login
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
+          creds: |
+            {
+              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+            }
+      
       # ------------------------------------------------------
       # CONFIGURE GITHUB AUTHENTICATION
       # ------------------------------------------------------

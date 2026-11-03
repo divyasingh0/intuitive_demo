@@ -12,6 +12,7 @@ permissions:
 env:
   TF_IN_AUTOMATION: true
   TF_INPUT: false
+  TF_VAR_windows_import_password: ${{ secrets.WINDOWS_IMPORT_PASSWORD }}
 
 jobs:
   validate:
@@ -40,8 +41,8 @@ jobs:
 
       - name: Validate Environment Files
         run: |
-          test -f environment/dev/backend.tfvars
-          test -f environment/dev/dev.tfvars
+          test -f environment/test/backend.tfvars
+          test -f environment/test/test.tfvars
 
       - name: Configure GitHub Authentication
         run: |
