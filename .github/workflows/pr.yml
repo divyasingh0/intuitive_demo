@@ -225,24 +225,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------
-      # READ TERRAFORM VERSION
-      # ------------------------------------------------------
-
-      - name: Read Terraform Version
-        id: terraform_version
-        shell: bash
-        run: |
-          terraform_version="$(tr -d '[:space:]' < .terraform-version)"
-
-          if [ -z "$terraform_version" ]; then
-            echo "::error::.terraform-version is empty"
-            exit 1
-          fi
-
-          echo "version=$terraform_version" >> "$GITHUB_OUTPUT"
-
-      # ------------------------------------------------------
       # SETUP TERRAFORM
       # ------------------------------------------------------
 
