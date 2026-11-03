@@ -162,10 +162,7 @@ jobs:
         run: |
           sha256sum -c tfplan.sha256
 
-      - name: Read Terraform Version
-        id: terraform_version
-        run: |
-          echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"
+
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -175,9 +172,15 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          creds: |
+            {
+              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+            }
+      
+
 
       - name: Configure GitHub Authentication
         env:
