@@ -1,399 +1,59 @@
-name: Terraform Plan
-
-# ==========================================================
-# WORKFLOW TRIGGER
-# ==========================================================
-# Runs when a pull request targeting main is opened,
-# updated, or reopened.
-#
-# The workflow performs:
-#   1. Terraform formatting check
-#   2. Terraform validation
-#   3. Terraform plan
-#   4. Plan artifact creation
-#   5. Artifact metadata generation
-#
-# The generated Terraform plan can later be selected by the
-# manual Terraform Deployment workflow.
-# ==========================================================
-
+name: Terraform PR
+ 
 on:
   pull_request:
     branches:
       - main
-    types:
-      - opened
-      - synchronize
-      - reopened
-
-# ==========================================================
-# WORKFLOW PERMISSIONS
-# ==========================================================
-
+ 
 permissions:
   id-token: write
   contents: read
-
-# ==========================================================
-# GLOBAL ENVIRONMENT VARIABLES
-# ==========================================================
-
-env:
-  TF_IN_AUTOMATION: true
-  TF_INPUT: false
-
-  # Repository-specific configuration
-  TERRAFORM_ENVIRONMENT: test
-  TERRAFORM_WORKING_DIRECTORY: .
-
-
-# ==========================================================
-# JOBS
-# ==========================================================
-
+  pull-requests: write
+ 
 jobs:
-
-  # ========================================================
-  # TERRAFORM VALIDATION
-  # ========================================================
-
-  validate:
-    name: Validate Infrastructure Code
+  terraform-plan:
+    name: Terraform Plan
     runs-on: ubuntu-latest
-
-    # This must match the GitHub Environment containing
-    # the Azure OIDC configuration and required secrets.
-    environment: test
-
-    defaults:
-      run:
-        working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
+ 
     steps:
-
-      # ------------------------------------------------------
-      # CHECKOUT SOURCE CODE
-      # ------------------------------------------------------
-
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
-
-      # ------------------------------------------------------
-      # CHECK REQUIRED SECRETS
-      # ------------------------------------------------------
-      # Secret values are not printed.
-      # The workflow fails if a required secret is unavailable.
-      # ------------------------------------------------------
-
-      - name: Check Required Secrets
-        shell: bash
-        env:
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          GH_PAT: ${{ secrets.GH_PAT }}
-
-        run: |
-          missing_secret=false
-
-          for secret_name in \
-            AZURE_CLIENT_ID \
-            AZURE_TENANT_ID \
-            AZURE_SUBSCRIPTION_ID \
-            GH_PAT 
-          do
-            if [ -z "${!secret_name}" ]; then
-              echo "::error::Required secret is not configured: ${secret_name}"
-              missing_secret=true
-            fi
-          done
-
-          if [ "$missing_secret" = true ]; then
-            exit 1
-          fi
-
-      # ------------------------------------------------------
-      # READ TERRAFORM VERSION
-      # ------------------------------------------------------
-
-      - name: Read Terraform Version
-        id: terraform_version
-        shell: bash
-        run: |
-          if [ ! -f .terraform-version ]; then
-            echo "::error::.terraform-version file was not found"
-            exit 1
-          fi
-
-          terraform_version="$(tr -d '[:space:]' < .terraform-version)"
-
-          if [ -z "$terraform_version" ]; then
-            echo "::error::.terraform-version is empty"
-            exit 1
-          fi
-
-          echo "version=$terraform_version" >> "$GITHUB_OUTPUT"
-
-      # ------------------------------------------------------
-      # SETUP TERRAFORM
-      # ------------------------------------------------------
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ steps.terraform_version.outputs.version }}
-          terraform_wrapper: false
-
-      # ------------------------------------------------------
-      # VALIDATE ENVIRONMENT FILES
-      # ------------------------------------------------------
-
-      - name: Validate Environment Files
-        shell: bash
-        run: |
-          backend_file="environment/${TERRAFORM_ENVIRONMENT}/backend.tfvars"
-          variables_file="environment/${TERRAFORM_ENVIRONMENT}/${TERRAFORM_ENVIRONMENT}.tfvars"
-
-          if [ ! -f "$backend_file" ]; then
-            echo "::error::Backend configuration not found: $backend_file"
-            exit 1
-          fi
-
-          if [ ! -f "$variables_file" ]; then
-            echo "::error::Terraform variables file not found: $variables_file"
-            exit 1
-          fi
-
-      # ------------------------------------------------------
-      # AZURE OIDC LOGIN
-      # ------------------------------------------------------
-
-      - name: Azure Login
+ 
+      - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      # ------------------------------------------------------
-      # CONFIGURE GITHUB AUTHENTICATION
-      # ------------------------------------------------------
-      # Required when Terraform modules are stored in private
-      # GitHub repositories.
-      # ------------------------------------------------------
-
-      - name: Configure GitHub Authentication
-        shell: bash
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          git config --global \
-            url."https://x-access-token:${GH_PAT}@github.com/".insteadOf \
-            "https://github.com/"
-
-      # ------------------------------------------------------
-      # TERRAFORM INIT
-      # ------------------------------------------------------
-
-      - name: Terraform Init
-        shell: bash
-        run: |
-          terraform init \
-            -backend-config="environment/${TERRAFORM_ENVIRONMENT}/backend.tfvars" \
-            -input=false
-
-      # ------------------------------------------------------
-      # TERRAFORM FORMAT CHECK
-      # ------------------------------------------------------
-
+ 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+ 
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
-
-      # ------------------------------------------------------
-      # TERRAFORM VALIDATE
-      # ------------------------------------------------------
-
-      - name: Terraform Validate
-        run: terraform validate
-
-  # ========================================================
-  # TERRAFORM PLAN
-  # ========================================================
-  # Generates the exact Terraform plan stored as an artifact.
-  # The deployment workflow should apply this stored plan and
-  # must not generate a replacement plan.
-  # ========================================================
-
-  plan:
-    name: Generate Deployment Plan
-    needs: validate
-    runs-on: ubuntu-latest
-    environment: test
-
-    defaults:
-      run:
-        working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
-    steps:
-
-      # ------------------------------------------------------
-      # CHECKOUT SOURCE CODE
-      # ------------------------------------------------------
-
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # ------------------------------------------------------
-      # READ TERRAFORM VERSION
-      # ------------------------------------------------------
-
-      - name: Read Terraform Version
-        id: terraform_version
-        shell: bash
-        run: |
-          terraform_version="$(tr -d '[:space:]' < .terraform-version)"
-
-          if [ -z "$terraform_version" ]; then
-            echo "::error::.terraform-version is empty"
-            exit 1
-          fi
-
-          echo "version=$terraform_version" >> "$GITHUB_OUTPUT"
-
-      # ------------------------------------------------------
-      # SETUP TERRAFORM
-      # ------------------------------------------------------
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ steps.terraform_version.outputs.version }}
-          terraform_wrapper: false
-
-      # ------------------------------------------------------
-      # AZURE OIDC LOGIN
-      # ------------------------------------------------------
-
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      # ------------------------------------------------------
-      # CONFIGURE GITHUB AUTHENTICATION
-      # ------------------------------------------------------
-
-      - name: Configure GitHub Authentication
-        shell: bash
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          git config --global \
-            url."https://x-access-token:${GH_PAT}@github.com/".insteadOf \
-            "https://github.com/"
-
-      # ------------------------------------------------------
-      # TERRAFORM INIT
-      # ------------------------------------------------------
-
+ 
       - name: Terraform Init
-        shell: bash
         run: |
           terraform init \
-            -backend-config="environment/${TERRAFORM_ENVIRONMENT}/backend.tfvars" \
-            -input=false
-
-      # ------------------------------------------------------
-      # GENERATE WORKFLOW METADATA
-      # ------------------------------------------------------
-
-      - name: Generate Workflow Metadata
-        shell: bash
-        run: |
-          jq -n \
-            --arg repository "$GITHUB_REPOSITORY" \
-            '{
-              workflow_tags: {
-                repository: $repository
-              }
-            }' > workflow.auto.tfvars.json
-
-      # ------------------------------------------------------
-      # TERRAFORM PLAN
-      # ------------------------------------------------------
-
+            -backend-config=environment/test/backend.tfvars
+ 
+      - name: Terraform Validate
+        run: terraform validate
+ 
       - name: Terraform Plan
-        shell: bash
         run: |
           terraform plan \
-            -var-file="environment/${TERRAFORM_ENVIRONMENT}/${TERRAFORM_ENVIRONMENT}.tfvars" \
+            -var-file=environment/test/test.tfvars \
             -out=tfplan \
             -input=false
-
-      # ------------------------------------------------------
-      # GENERATE HUMAN-READABLE PLAN
-      # ------------------------------------------------------
-
-      - name: Generate Plan Output
-        run: terraform show -no-color tfplan > tfplan.txt
-
-      # ------------------------------------------------------
-      # GENERATE SHA-256 CHECKSUM
-      # ------------------------------------------------------
-
-      - name: Generate Plan Checksum
-        run: sha256sum tfplan > tfplan.sha256
-
-      # ------------------------------------------------------
-      # GENERATE ARTIFACT METADATA
-      # ------------------------------------------------------
-
-      - name: Generate Artifact Metadata
-        shell: bash
-        env:
-          REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
-          ENVIRONMENT_NAME: ${{ env.TERRAFORM_ENVIRONMENT }}
-          WORKFLOW_RUN_ID: ${{ github.run_id }}
-          WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: |
-          jq -n \
-            --arg repository "$REPOSITORY" \
-            --argjson pr_number "$PR_NUMBER" \
-            --arg pr_title "$PR_TITLE" \
-            --arg commit_sha "$COMMIT_SHA" \
-            --arg environment "$ENVIRONMENT_NAME" \
-            --arg workflow_run_id "$WORKFLOW_RUN_ID" \
-            --arg workflow_run_attempt "$WORKFLOW_RUN_ATTEMPT" \
-            '{
-              repository: $repository,
-              pr_number: $pr_number,
-              pr_title: $pr_title,
-              commit_sha: $commit_sha,
-              environment: $environment,
-              workflow_run_id: $workflow_run_id,
-              workflow_run_attempt: $workflow_run_attempt
-            }' > artifact-metadata.json
-
-          echo "Generated artifact metadata:"
-          cat artifact-metadata.json
-
-      # ------------------------------------------------------
-      # UPLOAD TERRAFORM PLAN ARTIFACT
-      # ------------------------------------------------------
-
-      - name: Upload Terraform Plan Artifact
+ 
+      - name: Save Plan Output
+        run: terraform show -no-color tfplan > plan.txt
+ 
+      - name: Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: terraform-plan-${{ env.TERRAFORM_ENVIRONMENT }}-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
-          retention-days: 1
-          if-no-files-found: error
+          name: terraform-plan
           path: |
-            ${{ env.TERRAFORM_WORKING_DIRECTORY }}/tfplan
-            ${{ env.TERRAFORM_WORKING_DIRECTORY }}/tfplan.txt
-            ${{ env.TERRAFORM_WORKING_DIRECTORY }}/tfplan.sha256
-            ${{ env.TERRAFORM_WORKING_DIRECTORY }}/artifact-metadata.json
+            tfplan
+            plan.txt

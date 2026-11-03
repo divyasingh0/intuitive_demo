@@ -1,200 +1,82 @@
 name: Terraform Deploy
-
+ 
 on:
-  workflow_dispatch:
-    inputs:
-      artifact_name:
-        description: "Terraform plan artifact name"
-        required: true
-        type: string
 
-      environment:
-        description: "Terraform environment"
-        required: true
-        default: "test"
-        type: choice
-        options:
-          - dev
-          - test
-          - prod
+  push:
 
+    branches:
+
+      - main
+ 
 permissions:
+
   id-token: write
+
   contents: read
-  actions: read
-
-env:
-  TF_IN_AUTOMATION: true
-  TF_INPUT: false
-  TERRAFORM_WORKING_DIRECTORY: .
-  TF_VAR_windows_import_password: ${{ secrets.WINDOWS_IMPORT_PASSWORD }}
-
+ 
 jobs:
-  deploy:
-    name: Deploy Infrastructure
+
+  terraform-apply:
+
+    name: Terraform Apply
 
     runs-on: ubuntu-latest
-
-    environment:
-      name: ${{ inputs.environment }}
-
-    defaults:
-      run:
-        working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
+ 
+    environment: production
+ 
     steps:
-      - name: Checkout
+
+      - name: Checkout Repository
+
         uses: actions/checkout@v4
+ 
+      - name: Azure Login (OIDC)
 
-      - name: Validate Artifact Name And Extract Run ID
-        id: artifact
-        shell: bash
-        run: |
-          ARTIFACT_NAME="${{ inputs.artifact_name }}"
-          ENVIRONMENT="${{ inputs.environment }}"
-
-          PATTERN="^terraform-plan-${ENVIRONMENT}-pr-[0-9]+-[0-9]+$"
-
-          if ! [[ "$ARTIFACT_NAME" =~ $PATTERN ]]; then
-            echo "ERROR: Invalid artifact name."
-            echo ""
-            echo "Expected format:"
-            echo "terraform-plan-${ENVIRONMENT}-pr-<pr-number>-<run-id>"
-            echo ""
-            echo "Example:"
-            echo "terraform-plan-${ENVIRONMENT}-pr-125-123456789"
-            exit 1
-          fi
-
-          RUN_ID=$(echo "$ARTIFACT_NAME" | awk -F- '{print $NF}')
-
-          if ! [[ "$RUN_ID" =~ ^[0-9]+$ ]]; then
-            echo "ERROR: Failed to extract workflow run ID."
-            exit 1
-          fi
-
-          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
-
-          echo "=========================================="
-          echo "Artifact Name : $ARTIFACT_NAME"
-          echo "Run ID        : $RUN_ID"
-          echo "=========================================="
-
-      - name: Display Deployment Information
-        env:
-          ENVIRONMENT: ${{ inputs.environment }}
-          ARTIFACT_NAME: ${{ inputs.artifact_name }}
-          SOURCE_RUN_ID: ${{ steps.artifact.outputs.run_id }}
-        run: |
-          echo "=========================================="
-          echo "Terraform Deployment"
-          echo "=========================================="
-          echo "Environment : $ENVIRONMENT"
-          echo "Artifact    : $ARTIFACT_NAME"
-          echo "Source Run  : $SOURCE_RUN_ID"
-          echo "=========================================="
-
-      - name: Download Terraform Plan Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ inputs.artifact_name }}
-          path: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ steps.artifact.outputs.run_id }}
-
-      - name: Validate Terraform Plan Artifact
-        run: |
-          test -f tfplan
-          test -f tfplan.txt
-          test -f tfplan.sha256
-          test -f artifact-metadata.json
-
-          echo "Terraform plan artifact validation successful."
-
-      - name: Display Plan Metadata
-        run: |
-          echo "=========================================="
-          echo "Terraform Plan Metadata"
-          echo "=========================================="
-
-          jq . artifact-metadata.json
-
-          echo "=========================================="
-
-      - name: Validate Artifact Metadata
-        env:
-          EXPECTED_REPOSITORY: ${{ github.repository }}
-          EXPECTED_ENVIRONMENT: ${{ inputs.environment }}
-          EXPECTED_RUN_ID: ${{ steps.artifact.outputs.run_id }}
-        run: |
-          PLAN_REPOSITORY=$(jq -r '.repository' artifact-metadata.json)
-          PLAN_ENVIRONMENT=$(jq -r '.environment' artifact-metadata.json)
-          PLAN_RUN_ID=$(jq -r '.workflow_run_id' artifact-metadata.json)
-
-          echo "Plan Repository     : $PLAN_REPOSITORY"
-          echo "Expected Repository : $EXPECTED_REPOSITORY"
-
-          echo "Plan Environment     : $PLAN_ENVIRONMENT"
-          echo "Expected Environment : $EXPECTED_ENVIRONMENT"
-
-          echo "Plan Run ID          : $PLAN_RUN_ID"
-          echo "Expected Run ID      : $EXPECTED_RUN_ID"
-
-          if [ "$PLAN_REPOSITORY" != "$EXPECTED_REPOSITORY" ]; then
-            echo "ERROR: Artifact belongs to another repository."
-            exit 1
-          fi
-
-          if [ "$PLAN_ENVIRONMENT" != "$EXPECTED_ENVIRONMENT" ]; then
-            echo "ERROR: Artifact belongs to another Terraform environment."
-            exit 1
-          fi
-
-          if [ "$PLAN_RUN_ID" != "$EXPECTED_RUN_ID" ]; then
-            echo "ERROR: Artifact belongs to another workflow run."
-            exit 1
-          fi
-
-          echo "Artifact metadata validation successful."
-
-      - name: Verify Terraform Plan Checksum
-        run: |
-          sha256sum -c tfplan.sha256
-
-      - name: Read Terraform Version
-        id: terraform_version
-        run: |
-          echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ steps.terraform_version.outputs.version }}
-
-      - name: Azure Login
         uses: azure/login@v2
+
         with:
+
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
+
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+ 
+      - name: Setup Terraform
 
-      - name: Configure GitHub Authentication
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          git config --global \
-            url."https://x-access-token:${GH_PAT}@github.com/".insteadOf \
-            "https://github.com/"
-
+        uses: hashicorp/setup-terraform@v3
+ 
       - name: Terraform Init
-        run: |
-          terraform init \
-            -backend-config="environment/${{ inputs.environment }}/backend.tfvars" \
-            -input=false
 
-      - name: Terraform Apply
         run: |
+
+          terraform init \
+
+            -backend-config=environment/test/backend.tfvars
+ 
+      - name: Terraform Validate
+
+        run: terraform validate
+ 
+      - name: Terraform Plan
+
+        run: |
+
+          terraform plan \
+
+            -var-file=environment/test/test.tfvars \
+
+            -out=tfplan \
+
+            -input=false
+ 
+      - name: Terraform Apply
+
+        run: |
+
           terraform apply \
-            -auto-approve \
+
+            -input=false \
+
             tfplan
+ 
