@@ -1,32 +1,48 @@
 name: Terraform Validate
- 
+
 on:
   push:
     branches:
-      - 'feature/**'
- 
+      - "feature/**"
+
 permissions:
   id-token: write
   contents: read
- 
+
+env:
+  TF_IN_AUTOMATION: true
+  TF_INPUT: false
+  TF_VAR_windows_import_password: ${{ secrets.WINDOWS_IMPORT_PASSWORD }}
+
 jobs:
   validate:
-    name: Terraform Validation
+    name: Validate Infrastructure Code
     runs-on: ubuntu-latest
- 
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
- 
 
-      # ------------------------------------------------------
-      # CONFIGURE GITHUB AUTHENTICATION
-      # ------------------------------------------------------
-      # Configures Git authentication for accessing private
-      # Terraform modules hosted in GitHub repositories.
-      #
-      # GH_PAT is used for private repository access.
-      # ------------------------------------------------------
+    environment: test
+
+    defaults:
+      run:
+        working-directory: .
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read Terraform Version
+        id: terraform_version
+        run: |
+          echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ steps.terraform_version.outputs.version }}
+
+      - name: Validate Environment Files
+        run: |
+          test -f environment/test/backend.tfvars
+          test -f environment/test/test.tfvars
 
       - name: Configure GitHub Authentication
         run: |
@@ -34,26 +50,16 @@ jobs:
             url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf \
             "https://github.com/"
 
-
-      - name: Azure Login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
- 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
- 
-      - name: Terraform Format Check
-        run: terraform fmt -check -recursive
- 
       - name: Terraform Init
         run: |
           terraform init \
-            -backend-config=environment/test/backend.tfvars
- 
+            -backend=false \
+            -input=false
+
+      - name: Terraform Format Check
+        run: |
+          terraform fmt -check -recursive
+
       - name: Terraform Validate
-        run: terraform validate
-
-
+        run: |
+          terraform validate
